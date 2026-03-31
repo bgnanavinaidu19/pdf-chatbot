@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document Chatbot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://unpkg.com/feather-icons"></script>
+</head>
+<body>
+  
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <i data-feather="book-open"></i>
+          <h1>DocBot</h1>
+        </div>
+        <p class="subtitle">Your document analyzer.</p>
+      </div>
+
+      <div class="upload-section">
+        <label for="fileInput" class="upload-area" id="dropZone">
+          <i data-feather="upload-cloud" class="upload-icon"></i>
+          <span id="fileName">Drop your PDF or click to browse</span>
+          <p class="file-limits">Supports .pdf files</p>
+        </label>
+        <input type="file" id="fileInput" accept=".pdf" />
+        <button onclick="uploadFile()" id="uploadBtn" disabled>
+          <span>Initialize Document</span>
+          <i data-feather="arrow-right"></i>
+        </button>
+      </div>
+
+      <div id="uploadStatus" class="upload-status"></div>
+
+      <div class="sidebar-footer">
+        <p>Document Reader &copy; 2026</p>
+      </div>
+    </aside>
+
+    <main class="chat-area">
+      <header class="chat-header">
+        <h2>Document Chat</h2>
+        <div class="status-indicator">
+          <span class="status-dot"></span>
+          <span id="systemStatus">Awaiting Document</span>
+        </div>
+      </header>
+
+      <div class="chat-box" id="chatBox">
+        <div class="message bot welcome-message">
+          <div class="avatar"><i data-feather="book"></i></div>
+          <div class="bubble">
+            <p>Welcome! I'm here to help you unlock the knowledge inside your documents. Please upload a story book or PDF to get started.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="input-section">
+        <div class="input-wrapper">
+          <input 
+            type="text" 
+            id="question" 
+            placeholder="Ask a question about your document..." 
+            onkeypress="handleKeyPress(event)"
+            disabled
+          />
+          <button id="sendBtn" onclick="sendMessage()" disabled>
+            <i data-feather="send"></i>
+          </button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="script.js"></script>
+  <script>
+    feather.replace();
+  </script>
+</body>
+</html>

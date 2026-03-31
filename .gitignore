@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Environment variables (NEVER commit your API key!)
+.env
+backend/.env
+
+# Uploaded files & logs
+backend/uploads/
+backend/logs/
+
+# Temporary debug files
+backend/models_*.txt
+backend/models_*.json
+backend/check_api_json.js
+backend/test_full_recall.js
+backend/available_models.txt
+backend/final_models.txt
+backend/models_detailed.txt
+backend/models_readable.txt
+
+# OS Files
+.DS_Store
+Thumbs.db
