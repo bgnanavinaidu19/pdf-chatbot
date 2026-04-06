@@ -9,9 +9,12 @@ const statusDot = document.querySelector(".status-dot");
 const systemStatus = document.getElementById("systemStatus");
 const dropZone = document.getElementById("dropZone");
 
+// --- Program State ---
 let isDocumentReady = false;
 
-// File Selection logic
+// --- Event Listeners ---
+
+// Handle manual file selection
 fileInput.addEventListener("change", (e) => {
   const file = e.target.files[0];
   if (file) {
@@ -28,7 +31,7 @@ fileInput.addEventListener("change", (e) => {
   }
 });
 
-// Drag and Drop
+// Drag and drop event logic
 dropZone.addEventListener("dragover", (e) => {
   e.preventDefault();
   dropZone.classList.add("dragover");
@@ -49,6 +52,15 @@ dropZone.addEventListener("drop", (e) => {
   }
 });
 
+// --- UI Messaging ---
+
+/**
+ * Creates a message element with specialized formatting.
+ * @param {string} text - Message content.
+ * @param {string} role - 'bot' or 'user'.
+ * @param {boolean} isError - Whether it's an error message.
+ * @returns {HTMLElement} - The message div.
+ */
 function createMessageElement(text, role, isError = false) {
   const div = document.createElement("div");
   div.className = `message ${role}`;
@@ -64,8 +76,10 @@ function createMessageElement(text, role, isError = false) {
   return div;
 }
 
+/**
+ * Simple markdown parser for bolding and lists.
+ */
 function parseMarkdown(text) {
-  // Handle bold with higher priority
   let html = text
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.*?)\*/g, '<em>$1</em>')
@@ -74,13 +88,10 @@ function parseMarkdown(text) {
     .replace(/^# (.*?)$/gm, '<h1>$1</h1>')
     .replace(/^\* (.*?)$/gm, '<li>$1</li>');
     
-  // Wrap list items in <ul>
   if (html.includes('<li>')) {
     html = html.replace(/(<li>.*?<\/li>)+/gs, (match) => `<ul>${match}</ul>`);
   }
   
-  // Convert newlines to <br> (only those not part of <li> / <ul> / <h> / <br>)
-  // But first, normalize multiple newlines to double <br> for paragraph effect
   html = html.replace(/\n\n/g, '<br><br>');
   
   return html.split('\n').map(line => {
@@ -89,6 +100,9 @@ function parseMarkdown(text) {
   }).join('');
 }
 
+/**
+ * Sanitizes HTML input to prevent XSS.
+ */
 function escapeHTML(str) {
   return str.replace(/[&<>'"]/g, 
     tag => ({
@@ -101,12 +115,20 @@ function escapeHTML(str) {
   );
 }
 
+/**
+ * Adds a message to the chat container.
+ * @param {string} text - The message content.
+ * @param {string} role - 'bot' or 'user'.
+ * @param {boolean} isError - Optional error status.
+ */
 function addMessage(text, role, isError = false) {
   const msgEl = createMessageElement(text, role, isError);
   chatBox.appendChild(msgEl);
   feather.replace();
   scrollToBottom();
 }
+
+// --- Typing & Loading Animations ---
 
 function showTypingIndicator() {
   const div = document.createElement("div");
@@ -131,14 +153,99 @@ function showTypingIndicator() {
 
 function removeTypingIndicator() {
   const indicator = document.getElementById("typingIndicator");
-  if (indicator) {
-    indicator.remove();
-  }
+  if (indicator) indicator.remove();
 }
 
 function scrollToBottom() {
   chatBox.scrollTop = chatBox.scrollHeight;
 }
+
+// --- API Interactions ---
+
+/**
+ * Uploads a file to the backend and updates UI status.
+ */
+async function uploadFile() {
+  const file = fileInput.files[0];
+  if (!file) return;
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  uploadBtn.disabled = true;
+  const originalBtnText = uploadBtn.querySelector('span').innerText;
+  uploadBtn.querySelector('span').innerText = "Indexing...";
+  showUploadStatus("Reading and cleaning document...", "loading");
+
+  try {
+    const response = await fetch("http://localhost:5001/upload", {
+      method: "POST",
+      body: formData,
+    });
+
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Upload failed.");
+
+    const charCount = data.charCount || 0;
+    const isFullIndex = !!data.isFullIndex;
+
+    showUploadStatus(`Indexed: ${charCount.toLocaleString()} chars`, "success");
+    setSystemReady();
+    
+    uploadBtn.querySelector('span').innerText = isFullIndex ? "Pro Recall Active" : "DocBot Ready";
+    
+    const indexMsg = isFullIndex 
+      ? "I have successfully indexed the **full document**. Ask me anything!"
+      : `Document indexed. Using high-density search for our chat.`;
+
+    addMessage(`**DocBot Pro** connected to "${file.name}". ${indexMsg}`, "bot");
+    
+  } catch (error) {
+    showUploadStatus(error.message, "error");
+    uploadBtn.disabled = false;
+    uploadBtn.querySelector('span').innerText = originalBtnText;
+  }
+}
+
+/**
+ * Sends a chat message to the AI and handles the response.
+ */
+async function sendMessage() {
+  const question = questionInput.value.trim();
+  if (!question) return;
+
+  addMessage(question, "user");
+  
+  questionInput.value = "";
+  questionInput.disabled = true;
+  sendBtn.disabled = true;
+
+  showTypingIndicator();
+
+  try {
+    const res = await fetch("http://localhost:5001/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+
+    const data = await res.json();
+    removeTypingIndicator();
+
+    if (!res.ok) throw new Error(data.error || "Response failed.");
+
+    addMessage(data.answer, "bot");
+  } catch (error) {
+    removeTypingIndicator();
+    addMessage(error.message, "bot", true);
+  } finally {
+    questionInput.disabled = false;
+    sendBtn.disabled = false;
+    questionInput.focus();
+  }
+}
+
+// --- Utils & Initialization ---
 
 function showUploadStatus(message, type) {
   uploadStatus.className = `upload-status ${type}`;
@@ -157,57 +264,9 @@ function hideUploadStatus() {
 function setSystemReady() {
   isDocumentReady = true;
   statusDot.classList.add("active");
-  systemStatus.innerText = "Ready to Chat";
-  questionInput.disabled = false;
-  sendBtn.disabled = false;
+  systemStatus.innerText = "PDF Recall Active";
   questionInput.placeholder = "Ask anything about the document...";
   questionInput.focus();
-}
-
-async function uploadFile() {
-  const file = fileInput.files[0];
-  if (!file) return;
-
-  const formData = new FormData();
-  formData.append("file", file);
-
-  uploadBtn.disabled = true;
-  const originalBtnText = uploadBtn.querySelector('span').innerText;
-  uploadBtn.querySelector('span').innerText = "Indexing...";
-  showUploadStatus("DocBot is reading your file...", "loading");
-
-  try {
-    const response = await fetch("http://localhost:5001/upload", {
-      method: "POST",
-      body: formData,
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.error || "Failed to upload file");
-    }
-
-    // Defensive check for new properties (in case server wasn't restarted)
-    const charCount = data.charCount || 0;
-    const isFullIndex = !!data.isFullIndex;
-
-    showUploadStatus(`Document indexed: ${charCount.toLocaleString()} chars`, "success");
-    setSystemReady();
-    
-    uploadBtn.querySelector('span').innerText = isFullIndex ? "Pro Recall Active" : "DocBot Ready";
-    
-    const indexTypeMsg = isFullIndex 
-      ? "I have successfully indexed the **unabridged document** using **Pro Intelligence**. I have 100% visibility of the story!"
-      : `I have indexed **${file.name}**. Due to its size, I will use high-density search for our chat.`;
-
-    addMessage(`**DocBot Pro** is now connected to "${file.name}". ${indexTypeMsg}`, "bot");
-    
-  } catch (error) {
-    showUploadStatus(error.message, "error");
-    uploadBtn.disabled = false;
-    uploadBtn.querySelector('span').innerText = originalBtnText;
-  }
 }
 
 function handleKeyPress(e) {
@@ -217,50 +276,7 @@ function handleKeyPress(e) {
   }
 }
 
-async function sendMessage() {
-  const question = questionInput.value.trim();
-  if (!question || !isDocumentReady) return;
-
-  // Add user message to UI
-  addMessage(question, "user");
-  
-  // Clear and disable input
-  questionInput.value = "";
-  questionInput.disabled = true;
-  sendBtn.disabled = true;
-
-  showTypingIndicator();
-
-  try {
-    const res = await fetch("http://localhost:5001/chat", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ question }),
-    });
-
-    const data = await res.json();
-    removeTypingIndicator();
-
-    if (!res.ok) {
-      throw new Error(data.error || "Failed to get an answer.");
-    }
-
-    addMessage(data.answer, "bot");
-  } catch (error) {
-    removeTypingIndicator();
-    // Special handling for Quota/Cooling errors
-    const isQuota = error.message.includes("Google") || error.message.includes("wait") || error.message.includes("Quota");
-    addMessage(error.message, "bot", isQuota);
-  } finally {
-    // Re-enable input instantly
-    questionInput.disabled = false;
-    sendBtn.disabled = false;
-    questionInput.focus();
-  }
-}
-
+// Spin animation for loading icons
 const style = document.createElement('style');
 style.innerHTML = `
   .spin { animation: spin 2s linear infinite; }

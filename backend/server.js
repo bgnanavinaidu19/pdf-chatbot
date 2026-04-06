@@ -7,53 +7,67 @@ const fs = require("fs");
 const { extractText } = require("./utils");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
+// --- Configuration & Initialization ---
+
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 const upload = multer({ dest: "uploads/" });
-
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// gemini-2.5-flash is confirmed available for this API key.
-// It has a 1M token context window — perfect for full-book analysis.
+/**
+ * AI Model Configuration
+ * Using gemini-1.5-flash for speed and large context window (1M tokens).
+ */
 const chatModel = genAI.getGenerativeModel({
-  model: "models/gemini-2.5-flash",
+  model: "models/gemini-1.5-flash",
   generationConfig: { 
-    temperature: 0.1, 
+    temperature: 0.7, 
     topP: 0.95,
     maxOutputTokens: 4096
   }
 });
 
+// --- State Management ---
+
+let fullBookText = "";
+let currentFileName = "";
+let chatCache = new Map();
+
+/**
+ * Handles basic social interactions and greetings locally.
+ * @param {string} question - The user's input question.
+ * @returns {string|null} - The response string or null if not a greeting.
+ */
 function handleGreetings(question) {
   const q = question.toLowerCase().replace(/[^a-z0-9]/g, "").trim();
-  // Final Intent Check: Is it social or document related?
   const socialTriggers = ["hello", "hi", "hey", "thanks", "bye", "who are you", "what is your name"];
+  
   if (socialTriggers.some(t => q.includes(t)) && q.length < 20) {
-    return "I'm **DocBot**, your document analysis expert. I'm ready to dive into the details of your PDF! What would you like to know about the characters or story?";
+    return "Hello! I'm **DocBot Pro**, your personal intelligence assistant. I can help you analyze documents or answer general questions. How can I assist you today?";
   }
   return null;
 }
 
-// Store state locally
-let fullBookText = "";
-let currentFileName = "";
-let chatCache = new Map(); // Simple cache to save API quota for repeated questions
-
-// Helper to find relevant context via keyword searching
+/**
+ * Extracts relevant paragraphs from the document based on keywords.
+ * Used when the document exceeds the optimal full-text context limit.
+ * @param {string} question - The user's query.
+ * @param {string} text - The full document text.
+ * @param {number} maxChars - Maximum characters to return.
+ * @returns {string} - The extracted context.
+ */
 function findRelevantContext(question, text, maxChars = 25000) {
   if (!text) return "";
 
   const qLower = question.toLowerCase();
-  // Enhanced keyword extraction: focus on nouns/names
   const keywords = [...new Set([...qLower.split(/\s+/).filter(w => w.length > 2), "protagonist", "climax", "resolution"])];
 
   let metaContext = "";
   const isMetaQuery = qLower.includes("author") || qLower.includes("who wrote") || qLower.includes("writer") || qLower.includes("by whom");
-  const isContentQuery = qLower.includes("character") || qLower.includes("intro") || qLower.includes("who is") || qLower.includes("story") || qLower.includes("about");
 
-  // Always include the first 8000 characters as it usually contains the title, author and introduction
+  // Include the beginning of the book for context (Title, Author, Intro)
   metaContext += text.substring(0, 8000) + "\n\n--- [BOOK INTRODUCTION / START] ---\n\n";
 
   if (isMetaQuery) {
@@ -70,7 +84,6 @@ function findRelevantContext(question, text, maxChars = 25000) {
     keywords.forEach(k => {
       if (pLower.includes(k)) {
         score += 10;
-        // Exact word match bonus
         if (new RegExp(`\\b${k}\\b`, "i").test(p)) score += 15;
       }
     });
@@ -88,7 +101,7 @@ function findRelevantContext(question, text, maxChars = 25000) {
     if (p.score === 0) continue;
 
     const originalIndex = p.index;
-    // Include context: 2 paragraphs before and 2 after
+    // Windowed context: 2 paragraphs before and after
     for (let j = Math.max(0, originalIndex - 2); j <= Math.min(paragraphs.length - 1, originalIndex + 2); j++) {
       if (!seenIndices.has(j)) {
         if (result.length + paragraphs[j].length > maxChars) break;
@@ -102,7 +115,11 @@ function findRelevantContext(question, text, maxChars = 25000) {
   return result || (metaContext + text).substring(0, maxChars);
 }
 
-// ===== UPLOAD ROUTE =====
+// --- API Routes ---
+
+/**
+ * Handle document uploads, indexing the text for later chat.
+ */
 app.post("/upload", upload.single("file"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "No file uploaded." });
@@ -110,11 +127,11 @@ app.post("/upload", upload.single("file"), async (req, res) => {
     const filePath = req.file.path;
     currentFileName = req.file.originalname;
 
-    // Total Memory Purge: Wipe old text and cache before saving new one
+    // Reset state for new document
     fullBookText = "";
     chatCache.clear();
 
-    // Clear the uploads directory entirely
+    // Cleanup uploads directory
     const uploadDir = "uploads/";
     fs.readdirSync(uploadDir).forEach(file => {
       if (file !== req.file.filename) {
@@ -122,89 +139,84 @@ app.post("/upload", upload.single("file"), async (req, res) => {
       }
     });
 
-    // Read the book text
+    // Extract and store text
     const text = await extractText(filePath);
     fullBookText = text || "";
 
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     
+    // Choose indexing mode based on length
     const isFullIndex = text.length < 1500000;
     res.json({ 
-      message: `DocBot has indexed "${currentFileName}"! It is now in ${isFullIndex ? "Full Recall" : "High Contrast"} mode.`,
+      message: `DocBot indexed "${currentFileName}"! Mode: ${isFullIndex ? "Full Recall" : "Targeted Search"}.`,
       isFullIndex,
       charCount: text.length
     });
   } catch (error) {
     console.error("Upload Error:", error);
-    res.status(500).json({ error: "Error reading the book: " + error.message });
+    res.status(500).json({ error: "Error reading document: " + error.message });
   }
 });
 
-// ===== CHAT ROUTE =====
+/**
+ * Main chat endpoint for document Q&A and general queries.
+ */
 app.post("/chat", async (req, res) => {
   try {
-    const question = req.body.question;
+    const { question } = req.body;
     if (!question) return res.status(400).json({ error: "Question is empty." });
 
     const qKey = question.trim().toLowerCase();
 
-    // 1. Local Greeting Check (ALWAYS PRIORITIZE)
+    // 1. Check local greetings
     const localAnswer = handleGreetings(question);
     if (localAnswer) return res.json({ answer: localAnswer });
 
-    // 2. Cache Check
+    // 2. Check cache
     if (chatCache.has(qKey)) {
-      console.log("Serving from cache...");
       return res.json({ answer: chatCache.get(qKey) });
     }
 
-    console.log(`[ANALYSIS] Document: "${currentFileName}" (${fullBookText.length} chars)`);
-    console.log(`[DIAGNOSTIC] Start of text: "${fullBookText.substring(0, 100)}..."`);
-    console.log(`[DIAGNOSTIC] End of text: "...${fullBookText.substring(Math.max(0, fullBookText.length - 100))}"`);
-    
-    // DECISION: Full Text vs. Partial Search
-    // Gemini 3.1 Flash has 1M token context. ~1.5M characters is roughly 400k tokens.
-    // We pass the FULL book for most documents to ensure perfect accuracy.
+    // 3. Prepare AI Prompt
     const useFullContext = fullBookText.length < 1500000;
-    const context = useFullContext 
-      ? fullBookText 
-      : findRelevantContext(question, fullBookText);
+    const context = useFullContext ? fullBookText : findRelevantContext(question, fullBookText);
 
-    const prompt = `You are **DocBot Pro**, a hyper-accurate intelligence agent designed for deep literary and document analysis.
+    const prompt = `You are **DocBot Pro**, a versatile and hyper-accurate intelligence agent.
+    
+Your goal is to assist the user by answering questions based on the provided document context OR your general knowledge if the question is not document-specific.
 
-MISSION: Answer the User Question with 100% precision based ONLY on the provided context.
-
-DOCUMENT: "${currentFileName || "Uploaded PDF"}"
+${currentFileName ? `CURRENT DOCUMENT: "${currentFileName}"` : "NO DOCUMENT UPLOADED YET."}
 RECALL MODE: ${useFullContext ? "FULL UNABRIDGED EXTRACTION" : "HIGH-DENSITY TARGETED SEARCH"}
 
-STRICT GROUNDING RULES:
-1. **Scour Entire Context**: Think step-by-step to find the answer buried in the text.
-2. **Identity Verification**: Be extremely careful with character names (e.g., Ava, Alex, Volkov).
-3. **No External Knowledge**: If the answer isn't in the text, say: "My records for ${currentFileName} do not specify that detail."
-4. **Markdown Formatting**: Use **bolding** for important names and facts.
+GROUNDING & RESPONSE RULES:
+1. **Document Priority**: If the question is about the uploaded document, search the context thoroughly and prioritize it.
+2. **General Knowledge**: If the question is general, answer using your internal knowledge.
+3. **No Refusal**: Do NOT say you can't answer because it's not in the PDF unless the user explicitly asks for something "from the text" that is missing.
+4. **Markdown**: Use **bolding** for important names and facts.
+5. **Transparency**: If document info is missing, say: "My records for ${currentFileName || "the document"} don't specify that, but I can help with other questions."
 
 --- 
 [START OF PROVIDED CONTEXT]
-${context}
+${context || "No document context available."}
 [END OF PROVIDED CONTEXT]
 ---
 
 User Question: ${question}
-DocBot Pro Reasoning & Analysis:`;
+DocBot Pro Analysis & Response:`;
 
-    // Retry Logic for 429
+    // 4. Generate AI Response with Retry Logic
     let lastError = null;
     for (let i = 0; i < 5; i++) {
       try {
         const result = await chatModel.generateContent(prompt);
         const answer = (await result.response).text();
-        chatCache.set(qKey, answer); // Cache result
+        chatCache.set(qKey, answer);
         return res.json({ answer });
       } catch (error) {
         lastError = error;
         if (error.message.includes("429") || error.message.includes("Quota")) {
-          console.warn(`Rate limited. Retail attempt ${i + 1}/5...`);
-          await new Promise(r => setTimeout(r, 2000 * (i + 1))); // Exponential backoff
+          console.warn(`Rate limit hit. Retrying (${i + 1}/5)...`);
+          await new Promise(r => setTimeout(r, 2000 * (i + 1)));
         } else {
           throw error;
         }
@@ -215,11 +227,11 @@ DocBot Pro Reasoning & Analysis:`;
   } catch (error) {
     console.error("Chat Error:", error.message);
     const isRateLimit = error.message.includes("429") || error.message.includes("Quota");
-    const errorMsg = isRateLimit
-      ? "The AI is currently under high load. Please wait 10 seconds and try again."
-      : "Error analyzing document: " + error.message;
-    res.status(500).json({ error: errorMsg });
+    res.status(500).json({ 
+      error: isRateLimit ? "AI is busy. Please wait a few seconds." : "Error: " + error.message 
+    });
   }
 });
 
-app.listen(5001, () => console.log("Final Restored DocBot running on port 5001"));
+const PORT = process.env.PORT || 5001;
+app.listen(PORT, () => console.log(`DocBot Pro active on port ${PORT}`));
