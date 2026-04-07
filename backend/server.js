@@ -217,7 +217,7 @@ DocBot Pro Analysis & Response:`;
         return res.json({ answer });
       } catch (error) {
         lastError = error;
-        if (error.message.includes("429") || error.message.includes("Quota")) {
+        if (error.message.includes("429") || error.message.includes("Quota") || error.message.includes("503") || error.message.includes("Service Unavailable")) {
           console.warn(`Rate limit hit. Retrying (${i + 1}/5)...`);
           await new Promise(r => setTimeout(r, 2000 * (i + 1)));
         } else {
