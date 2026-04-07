@@ -61,7 +61,7 @@ function handleGreetings(question) {
  * @param {number} maxChars - Maximum characters to return.
  * @returns {string} - The extracted context.
  */
-function findRelevantContext(question, text, maxChars = 25000) {
+function findRelevantContext(question, text, maxChars = 100000) {
   if (!text) return "";
 
   const qLower = question.toLowerCase();
@@ -181,31 +181,26 @@ app.post("/chat", async (req, res) => {
     }
 
     // 3. Prepare AI Prompt
-    const useFullContext = fullBookText.length < 1500000;
+    const useFullContext = fullBookText.length < 200000;
     const context = useFullContext ? fullBookText : findRelevantContext(question, fullBookText);
 
-    const prompt = `You are **DocBot Pro**, a versatile and hyper-accurate intelligence agent.
-    
-Your goal is to assist the user by answering questions based on the provided document context OR your general knowledge if the question is not document-specific.
+    const prompt = `You are DocBot Pro, a fast and accurate AI assistant.
+Answer the user question based on the [PROVIDED CONTEXT] or your internal knowledge for general queries.
 
-${currentFileName ? `CURRENT DOCUMENT: "${currentFileName}"` : "NO DOCUMENT UPLOADED YET."}
-RECALL MODE: ${useFullContext ? "FULL UNABRIDGED EXTRACTION" : "HIGH-DENSITY TARGETED SEARCH"}
+${currentFileName ? `DOCUMENT: "${currentFileName}"` : "NO DOCUMENT UPLOADED"}
+RECALL: ${useFullContext ? "FULL TEXT" : "SMART SEARCH"}
 
-GROUNDING & RESPONSE RULES:
-1. **Document Priority**: If the question is about the uploaded document, search the context thoroughly and prioritize it.
-2. **General Knowledge**: If the question is general, answer using your internal knowledge.
-3. **No Refusal**: Do NOT say you can't answer because it's not in the PDF unless the user explicitly asks for something "from the text" that is missing.
-4. **Markdown**: Use **bolding** for important names and facts.
-5. **Transparency**: If document info is missing, say: "My records for ${currentFileName || "the document"} don't specify that, but I can help with other questions."
+RULES:
+1. Prioritize document context for book-specific questions.
+2. Use **bolding** for names and core facts.
+3. If not in the document, answer with general knowledge but mention if the info is missing from the specific text.
 
 --- 
-[START OF PROVIDED CONTEXT]
-${context || "No document context available."}
-[END OF PROVIDED CONTEXT]
+[PROVIDED CONTEXT]
+${context || "No context available."}
 ---
 
-User Question: ${question}
-DocBot Pro Analysis & Response:`;
+Question: ${question}`;
 
     // 4. Generate AI Response with Retry Logic
     let lastError = null;
