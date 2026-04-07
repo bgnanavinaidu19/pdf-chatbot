@@ -178,7 +178,8 @@ async function uploadFile() {
   showUploadStatus("Reading and cleaning document...", "loading");
 
   try {
-    const response = await fetch("http://localhost:5001/upload", {
+    console.log("Attempting to upload to: http://127.0.0.1:5005/upload");
+    const response = await fetch("http://127.0.0.1:5005/upload", {
       method: "POST",
       body: formData,
     });
@@ -223,7 +224,8 @@ async function sendMessage() {
   showTypingIndicator();
 
   try {
-    const res = await fetch("http://localhost:5001/chat", {
+    console.log("Attempting to chat with: http://127.0.0.1:5005/chat");
+    const res = await fetch("http://127.0.0.1:5005/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question }),

@@ -10,10 +10,13 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 // --- Configuration & Initialization ---
 
 const app = express();
-app.use(cors());
+app.use(cors()); // Simplest, most open CORS for file origins
 app.use(express.json());
 
-const upload = multer({ dest: "uploads/" });
+const uploadDir = "uploads/";
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
+const upload = multer({ dest: uploadDir });
+
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 /**
@@ -21,7 +24,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
  * Using gemini-1.5-flash for speed and large context window (1M tokens).
  */
 const chatModel = genAI.getGenerativeModel({
-  model: "models/gemini-1.5-flash",
+  model: "gemini-flash-latest",
   generationConfig: { 
     temperature: 0.7, 
     topP: 0.95,
@@ -233,5 +236,11 @@ DocBot Pro Analysis & Response:`;
   }
 });
 
-const PORT = process.env.PORT || 5001;
-app.listen(PORT, () => console.log(`DocBot Pro active on port ${PORT}`));
+const PORT = 5005;
+const HOST = '127.0.0.1';
+
+app.listen(PORT, HOST, () => {
+  console.log(`\n🚀 DocBot Pro is now ONLINE!`);
+  console.log(`📡 Local Endpoint: http://${HOST}:${PORT}`);
+  console.log(`📁 API: /upload and /chat ready.\n`);
+});

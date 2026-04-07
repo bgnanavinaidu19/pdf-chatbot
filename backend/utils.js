@@ -24,6 +24,9 @@ function normalizeText(text) {
  */
 async function extractText(filePath) {
   try {
+    if (!fs.existsSync(filePath) || fs.lstatSync(filePath).isDirectory()) {
+      throw new Error(`Invalid file path: ${filePath}`);
+    }
     const dataBuffer = fs.readFileSync(filePath);
     
     // Polyfill to handle different import styles for pdf-parse
