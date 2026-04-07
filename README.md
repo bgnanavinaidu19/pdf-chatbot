@@ -69,11 +69,3 @@ const response = await fetch("http://127.0.0.1:5005/upload", { ... });
 // To your live URL:
 const response = await fetch("https://your-backend-app.onrender.com/upload", { ... });
 ```
-
----
-
-## 📄 License
-This project is for educational purposes. Feel free to modify and adapt!
-
----
-*Created with ❤️ for fast document analysis.*
