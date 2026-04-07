@@ -203,14 +203,20 @@ ${context || "No context available."}
 Question: ${question}`;
 
     // 4. Generate AI Response with Retry Logic
+    console.log(`[Chat] Query: "${question.substring(0, 50)}..."`);
+    console.log(`[Chat] Context Size: ${context.length} characters`);
+    
     let lastError = null;
     for (let i = 0; i < 5; i++) {
       try {
+        console.time("AI_Generation");
         const result = await chatModel.generateContent(prompt);
         const answer = (await result.response).text();
+        console.timeEnd("AI_Generation");
         chatCache.set(qKey, answer);
         return res.json({ answer });
       } catch (error) {
+        console.timeEnd("AI_Generation");
         lastError = error;
         if (error.message.includes("429") || error.message.includes("Quota") || error.message.includes("503") || error.message.includes("Service Unavailable")) {
           console.warn(`Rate limit hit. Retrying (${i + 1}/5)...`);
